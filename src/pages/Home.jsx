@@ -1,660 +1,576 @@
-import { useEffect, useState } from "react";
-import { Link } from "react-router";
-
-import Navbar from "../components/Navbar";
-import Theater from "../components/Theater";
+import {
+  useEffect,
+  useState,
+} from "react";
 
 import {
-  getMovies,
-  getTeluguMovies,
+  Link,
+} from "react-router";
+
+import Navbar from "../components/Navbar";
+import Hero from "../components/Hero";
+
+import {
+  getNowPlayingMovies,
+  getCineBookMovies,
   getPoster,
   theaters,
   getMovieNamesForTheater,
-  searchMovie,
+  isMovieAvailableAtTheater,
 } from "../data/movies";
 
+/* =====================================================
+   NORMALIZE TITLE
+===================================================== */
 
-/* =========================
-   TELUGU FIRST
-========================= */
-
-function teluguFirst(movies) {
-
-  return [...movies].sort(
-    function (a, b) {
-
-      if (
-        a.original_language === "te" &&
-        b.original_language !== "te"
-      ) {
-        return -1;
-      }
-
-      if (
-        a.original_language !== "te" &&
-        b.original_language === "te"
-      ) {
-        return 1;
-      }
-
-      return 0;
-    }
-  );
+function normalizeTitle(title) {
+  return String(title || "")
+    .toLowerCase()
+    .replace(
+      /[^a-z0-9]/g,
+      ""
+    );
 }
 
-
-/* =========================
-   HOME
-========================= */
+/* =====================================================
+   HOME PAGE
+===================================================== */
 
 function Home() {
+  const [
+    nowPlaying,
+    setNowPlaying,
+  ] = useState([]);
 
-  const [nowShowing, setNowShowing] =
-    useState([]);
+  const [
+    cineBookMovies,
+    setCineBookMovies,
+  ] = useState([]);
 
-  const [comingSoon, setComingSoon] =
-    useState([]);
+  const [
+    loading,
+    setLoading,
+  ] = useState(true);
 
-  const [popularMovies, setPopularMovies] =
-    useState([]);
+  const [
+    error,
+    setError,
+  ] = useState(false);
 
-  const [theaterMovies, setTheaterMovies] =
-    useState({});
+  /* ===================================================
+     LOAD MOVIES
+  =================================================== */
 
-  const [loading, setLoading] =
-    useState(true);
+  useEffect(
+    function () {
+      async function loadMovies() {
+        try {
+          setLoading(true);
+          setError(false);
 
+          const [
+            pageOne,
+            pageTwo,
+            catalog,
+          ] = await Promise.all([
+            getNowPlayingMovies(1),
+            getNowPlayingMovies(2),
+            getCineBookMovies(),
+          ]);
 
-  /* =========================
-     GET MOVIES
-  ========================= */
+          /* ==========================================
+             COMBINE TMDB NOW PLAYING
+          ========================================== */
 
-  useEffect(function () {
-
-    Promise.all([
-
-      getMovies(
-        "now_playing",
-        1
-      ),
-
-      getMovies(
-        "upcoming",
-        1
-      ),
-
-      getMovies(
-        "popular",
-        1
-      ),
-
-      getTeluguMovies(1),
-
-    ])
-
-      .then(
-        async function (results) {
-
-          const normalNowShowing =
-            results[0].results || [];
-
-          const upcoming =
-            results[1].results || [];
-
-          const popular =
-            results[2].results || [];
-
-          const telugu =
-            results[3].results || [];
-
-
-          /*
-            Combine normal movies
-            with Telugu movies.
-          */
-
-          const combinedNowShowing = [
-            ...telugu,
-            ...normalNowShowing,
+          const combined = [
+            ...(pageOne.results || []),
+            ...(pageTwo.results || []),
           ];
 
+          /* ==========================================
+             REMOVE DUPLICATES
+          ========================================== */
 
-          /*
-            Remove duplicate movies.
-          */
+          const unique = [];
 
-          const uniqueNowShowing =
-            combinedNowShowing.filter(
-              function (movie, index, array) {
-
-                return (
-                  array.findIndex(
-                    function (item) {
-                      return (
-                        item.id ===
-                        movie.id
-                      );
-                    }
-                  ) === index
+          combined.forEach(
+            function (movie) {
+              const exists =
+                unique.some(
+                  function (item) {
+                    return (
+                      item.id ===
+                      movie.id
+                    );
+                  }
                 );
 
+              if (!exists) {
+                unique.push(
+                  movie
+                );
               }
-            );
-
-
-          setNowShowing(
-            teluguFirst(
-              uniqueNowShowing
-            )
+            }
           );
 
-
-          setComingSoon(
-            teluguFirst(upcoming)
+          setNowPlaying(
+            unique
           );
 
-
-          setPopularMovies(
-            teluguFirst(popular)
+          setCineBookMovies(
+            catalog || []
+          );
+        } catch (err) {
+          console.error(
+            "Home movie loading error:",
+            err
           );
 
-
-          /* =========================
-             LOAD THEATER MOVIES
-          ========================= */
-
-          const theaterData = {};
-
-
-          for (
-            const theater of theaters
-          ) {
-
-            const movieNames =
-              getMovieNamesForTheater(
-                theater.name
-              );
-
-
-            const movieResults =
-              await Promise.all(
-
-                movieNames.map(
-                  async function (
-                    movieTitle
-                  ) {
-
-                    try {
-
-                      const data =
-                        await searchMovie(
-                          movieTitle
-                        );
-
-
-                      if (
-                        data.results &&
-                        data.results.length > 0
-                      ) {
-
-                        /*
-                          Find exact title
-                          first.
-                        */
-
-                        const exactMovie =
-                          data.results.find(
-                            function (
-                              movie
-                            ) {
-
-                              return (
-                                movie.title
-                                  .toLowerCase() ===
-                                movieTitle
-                                  .toLowerCase()
-                              );
-
-                            }
-                          );
-
-
-                        const movie =
-                          exactMovie ||
-                          data.results[0];
-
-
-                        return {
-                          id:
-                            movie.id,
-
-                          title:
-                            movie.title,
-
-                          poster:
-                            getPoster(
-                              movie.poster_path
-                            ),
-
-                          rating:
-                            movie.vote_average
-                              ? movie.vote_average.toFixed(
-                                  1
-                                )
-                              : "N/A",
-
-                          language:
-                            movie.original_language,
-                        };
-
-                      }
-
-                    } catch (
-                      error
-                    ) {
-
-                      console.log(
-                        "Theater movie error:",
-                        movieTitle,
-                        error
-                      );
-
-                    }
-
-                    return null;
-
-                  }
-                )
-              );
-
-
-            theaterData[
-              theater.name
-            ] = teluguFirst(
-              movieResults.filter(
-                function (movie) {
-                  return movie !== null;
-                }
-              )
-            );
-
-          }
-
-
-          setTheaterMovies(
-            theaterData
-          );
-
-
+          setError(true);
+        } finally {
           setLoading(false);
-
         }
-      )
+      }
 
-      .catch(function (error) {
+      loadMovies();
+    },
+    []
+  );
 
-        console.log(
-          "Movie error:",
-          error
+  /* ===================================================
+     NOW STREAMING
+
+     Only movies that are:
+
+     1. Currently playing on TMDB
+     2. Available in at least one CineBook theater
+  =================================================== */
+
+  const nowStreaming =
+    nowPlaying.filter(
+      function (movie) {
+        return theaters.some(
+          function (theater) {
+            return isMovieAvailableAtTheater(
+              movie.title,
+              theater.name
+            );
+          }
         );
+      }
+    );
 
-        setLoading(false);
+  /* ===================================================
+     GET MOVIE FROM CATALOG
+  =================================================== */
 
-      });
+  function findCatalogMovie(
+    title
+  ) {
+    return cineBookMovies.find(
+      function (movie) {
+        return (
+          normalizeTitle(
+            movie.title
+          ) ===
+          normalizeTitle(
+            title
+          )
+        );
+      }
+    );
+  }
 
-  }, []);
+  /* ===================================================
+     GET ALL CINEBOOK MOVIES
 
+     Every theater receives the same movie catalog.
+
+     Availability is checked separately for each
+     theater.
+  =================================================== */
+
+  function getTheaterMovies() {
+    const movies = [];
+
+    /* ================================================
+       ADD CATALOG MOVIES
+    ================================================= */
+
+    cineBookMovies.forEach(
+      function (movie) {
+        if (!movie) {
+          return;
+        }
+
+        const exists =
+          movies.some(
+            function (item) {
+              return (
+                item.id ===
+                movie.id
+              );
+            }
+          );
+
+        if (!exists) {
+          movies.push(
+            movie
+          );
+        }
+      }
+    );
+
+    /* ================================================
+       ADD SCHEDULED MOVIES THAT WERE NOT FOUND
+       IN THE CATALOG
+    ================================================= */
+
+    theaters.forEach(
+      function (theater) {
+        const scheduledTitles =
+          getMovieNamesForTheater(
+            theater.name
+          );
+
+        scheduledTitles.forEach(
+          function (title) {
+            const movie =
+              findCatalogMovie(
+                title
+              ) ||
+              nowPlaying.find(
+                function (item) {
+                  return (
+                    normalizeTitle(
+                      item.title
+                    ) ===
+                    normalizeTitle(
+                      title
+                    )
+                  );
+                }
+              );
+
+            if (!movie) {
+              return;
+            }
+
+            const exists =
+              movies.some(
+                function (item) {
+                  return (
+                    item.id ===
+                    movie.id
+                  );
+                }
+              );
+
+            if (!exists) {
+              movies.push(
+                movie
+              );
+            }
+          }
+        );
+      }
+    );
+
+    return movies;
+  }
+
+  const theaterMovies =
+    getTheaterMovies();
+
+  /* ===================================================
+     LOADING
+  =================================================== */
+
+  if (loading) {
+    return (
+      <>
+        <Navbar />
+
+        <main className="movie-loading">
+          Loading movies...
+        </main>
+      </>
+    );
+  }
+
+  /* ===================================================
+     ERROR
+  =================================================== */
+
+  if (error) {
+    return (
+      <>
+        <Navbar />
+
+        <main className="not-found">
+          <h2>
+            Movies Could Not Be Loaded
+          </h2>
+
+          <p>
+            Please check your TMDB
+            connection and try again.
+          </p>
+        </main>
+      </>
+    );
+  }
+
+  /* ===================================================
+     PAGE
+  =================================================== */
 
   return (
     <>
       <Navbar />
 
+      <Hero />
 
-      {/* =========================
-          HERO
-      ========================= */}
-
-      <section
-        className="home-hero"
-        id="home"
-      >
-
-        <div className="home-hero-content">
-
-          <p className="hero-small-title">
-            CINEBOOK • KAKINADA
-          </p>
-
-          <h1>
-            Movies.
-            <br />
-            Shows.
-            <br />
-            Memories.
-          </h1>
-
-          <p>
-            Book your favorite movies,
-            choose your theater, select
-            your seats and enjoy your
-            movie experience.
-          </p>
-
-          <a
-            href="#now-showing"
-            className="hero-book-button"
-          >
-            Explore Movies
-          </a>
-
-        </div>
-
-      </section>
-
-
-      {/* =========================
-          NOW SHOWING
-      ========================= */}
-
-      <section
-        className="home-movie-section"
-        id="now-showing"
-      >
-
-        <div className="home-section-heading">
-
-          <p className="red-label">
-            🔴 NOW SHOWING
-          </p>
-
-          <h2>
-            Movies Playing Now
-          </h2>
-
-          <span>
-            Telugu movies are shown first,
-            followed by other movies.
-          </span>
-
-        </div>
-
-
-        {loading ? (
-
-          <div className="movie-loading">
-            Loading movies...
-          </div>
-
-        ) : (
-
-          <div className="bookmyshow-movie-grid">
-
-            {nowShowing
-              .slice(0, 12)
-              .map(
-                function (movie) {
-
-                  return (
-                    <MovieCard
-                      key={movie.id}
-                      movie={movie}
-                      type="now"
-                    />
-                  );
-
-                }
-              )}
-
-          </div>
-
-        )}
-
-      </section>
-
-
-      {/* =========================
-          COMING SOON
-      ========================= */}
-
-      <section
-        className="home-movie-section coming-section"
-      >
-
-        <div className="home-section-heading">
-
-          <p className="yellow-label">
-            🟡 COMING SOON
-          </p>
-
-          <h2>
-            Upcoming Movies
-          </h2>
-
-          <span>
-            Telugu movies are prioritized
-            in this section.
-          </span>
-
-        </div>
-
-
-        <div className="bookmyshow-movie-grid">
-
-          {comingSoon
-            .slice(0, 8)
-            .map(
-              function (movie) {
-
-                return (
-                  <MovieCard
-                    key={movie.id}
-                    movie={movie}
-                    type="coming"
-                  />
-                );
-
-              }
-            )}
-
-        </div>
-
-      </section>
-
-
-      {/* =========================
-          POPULAR
-      ========================= */}
+      {/* =================================================
+          NOW STREAMING
+      ================================================= */}
 
       <section
         className="home-movie-section"
         id="movies"
       >
-
-        <div className="home-section-heading">
-
-          <p className="blue-label">
-            ⭐ POPULAR
+        <div
+          className="home-section-heading"
+        >
+          <p className="red-label">
+            CINEBOOK NOW
           </p>
 
           <h2>
-            Popular Movies
+            Now Streaming
           </h2>
 
           <span>
-            Telugu movies are prioritized
-            before other languages.
+            Movies currently playing
+            in CineBook theaters.
           </span>
-
         </div>
 
-
-        <div className="bookmyshow-movie-grid">
-
-          {popularMovies
-            .slice(0, 8)
-            .map(
+        {nowStreaming.length === 0 ? (
+          <div className="movie-loading">
+            No movies are currently
+            available in CineBook theaters.
+          </div>
+        ) : (
+          <div
+            className="bookmyshow-movie-grid"
+          >
+            {nowStreaming.map(
               function (movie) {
-
                 return (
-                  <MovieCard
+                  <Link
                     key={movie.id}
-                    movie={movie}
-                    type="popular"
-                  />
-                );
+                    to={`/movie/${movie.id}`}
+                    className="home-movie-card"
+                  >
+                    <div
+                      className="home-movie-poster"
+                    >
+                      <img
+                        src={getPoster(
+                          movie.poster_path
+                        )}
+                        alt={
+                          movie.title
+                        }
+                      />
 
+                      <span
+                        className="movie-status now-status"
+                      >
+                        NOW SHOWING
+                      </span>
+                    </div>
+
+                    <div
+                      className="home-movie-info"
+                    >
+                      <h3>
+                        {movie.title}
+                      </h3>
+
+                      <div
+                        className="movie-card-bottom"
+                      >
+                        <span>
+                          {movie.release_date
+                            ? new Date(
+                                movie.release_date
+                              ).getFullYear()
+                            : "Now"}
+                        </span>
+
+                        <span>
+                          Book Now
+                        </span>
+                      </div>
+                    </div>
+                  </Link>
+                );
               }
             )}
-
-        </div>
-
+          </div>
+        )}
       </section>
 
-
-      {/* =========================
+      {/* =================================================
           THEATERS
-      ========================= */}
+      ================================================= */}
 
       <section
         className="home-movie-section theaters-home-section"
         id="theaters"
       >
-
-        <div className="home-section-heading">
-
-          <p className="red-label">
-            🎥 CINEBOOK THEATERS
+        <div
+          className="home-section-heading"
+        >
+          <p className="yellow-label">
+            CINEBOOK THEATERS
           </p>
 
           <h2>
-            Movies by Theater
+            Movies at Your Theater
           </h2>
 
           <span>
-            Movies available at each
-            CineBook theater.
+            Check movie availability
+            theater by theater.
           </span>
-
         </div>
 
-
-        <div className="theaters-home-list">
-
+        <div
+          className="theaters-home-list"
+        >
           {theaters.map(
             function (theater) {
-
-              const movies =
-                theaterMovies[
-                  theater.name
-                ] || [];
-
-
               return (
-                <Theater
+                <article
+                  className="theater-card"
                   key={theater.name}
-                  name={theater.name}
-                  location={
-                    theater.location
-                  }
-                  movies={movies}
-                />
-              );
+                >
+                  {/* ===================================
+                      THEATER HEADER
+                  =================================== */}
 
+                  <div
+                    className="theater-header"
+                  >
+                    <div
+                      className="theater-icon"
+                    >
+                      🎬
+                    </div>
+
+                    <div
+                      className="theater-details"
+                    >
+                      <h3>
+                        {theater.name}
+                      </h3>
+
+                      <p>
+                        {theater.location}
+                      </p>
+
+                      <p
+                        className="movie-count"
+                      >
+                        {theaterMovies.length}
+                        {" "}
+                        movies listed
+                      </p>
+                    </div>
+                  </div>
+
+                  {/* ===================================
+                      MOVIES
+                  =================================== */}
+
+                  <div
+                    className="theater-movies"
+                  >
+                    {theaterMovies.map(
+                      function (movie) {
+                        const available =
+                          isMovieAvailableAtTheater(
+                            movie.title,
+                            theater.name
+                          );
+
+                        return (
+                          <Link
+                            key={
+                              `${theater.name}-${movie.id}`
+                            }
+                            to={
+                              available
+                                ? `/movie/${movie.id}`
+                                : "#"
+                            }
+                            className={
+                              available
+                                ? "theater-movie-item"
+                                : "theater-movie-item unavailable"
+                            }
+                            onClick={
+                              function (event) {
+                                if (
+                                  !available
+                                ) {
+                                  event.preventDefault();
+                                }
+                              }
+                            }
+                          >
+                            <img
+                              src={getPoster(
+                                movie.poster_path
+                              )}
+                              alt={
+                                movie.title
+                              }
+                            />
+
+                            <div
+                              className="theater-movie-info"
+                            >
+                              <strong>
+                                {movie.title}
+                              </strong>
+
+                              {available ? (
+                                <span>
+                                  Available
+                                </span>
+                              ) : (
+                                <span>
+                                  Not Available
+                                </span>
+                              )}
+                            </div>
+                          </Link>
+                        );
+                      }
+                    )}
+                  </div>
+                </article>
+              );
             }
           )}
-
         </div>
-
       </section>
-
     </>
   );
 }
-
-
-/* =========================
-   MOVIE CARD
-========================= */
-
-function MovieCard(props) {
-
-  const movie =
-    props.movie;
-
-
-  return (
-    <Link
-      to={`/movie/${movie.id}`}
-      className="home-movie-card"
-    >
-
-      <div className="home-movie-poster">
-
-        <img
-          src={getPoster(
-            movie.poster_path
-          )}
-          alt={movie.title}
-        />
-
-
-        {movie.original_language ===
-          "te" ? (
-
-          <span
-            className="movie-status now-status"
-          >
-            TELUGU
-          </span>
-
-        ) : props.type === "coming" ? (
-
-          <span
-            className="movie-status coming-status"
-          >
-            COMING SOON
-          </span>
-
-        ) : (
-
-          <span
-            className="movie-status now-status"
-          >
-            NOW SHOWING
-          </span>
-
-        )}
-
-      </div>
-
-
-      <div className="home-movie-info">
-
-        <h3>
-          {movie.title}
-        </h3>
-
-
-        <div className="movie-card-bottom">
-
-          <span>
-            ⭐{" "}
-            {movie.vote_average
-              ? movie.vote_average.toFixed(1)
-              : "N/A"}
-          </span>
-
-          <span>
-            View Details →
-          </span>
-
-        </div>
-
-      </div>
-
-    </Link>
-  );
-}
-
 
 export default Home;
